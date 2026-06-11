@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Integration Calculator</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/11.8.0/math.min.js"></script>
+    <script src="https://cdn.plot.ly/plotly-2.24.1.min.js"></script>
+    
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f7f6;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 600px;
+            box-sizing: border-box;
+        }
+        h2 {
+            margin-top: 0;
+            color: #2c3e50;
+            text-align: center;
+        }
+        .input-group {
+            margin-bottom: 15px;
+            display: flex;
+            flex-direction: column;
+        }
+        .input-group label {
+            font-weight: bold;
+            margin-bottom: 5px;
+            font-size: 14px;
+        }
+        .input-group input {
+            padding: 10px;
+            font-size: 16px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            font-family: monospace;
+        }
+        .bounds {
+            display: flex;
+            gap: 15px;
+        }
+        .bounds .input-group {
+            flex: 1;
+        }
+        button {
+            width: 100%;
+            padding: 12px;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #e8f8f5;
+            border-left: 5px solid #1abc9c;
+            font-size: 18px;
+            font-weight: bold;
+            display: none;
+        }
+        .error {
+            background-color: #fadbd8;
+            border-left: 5px solid #e74c3c;
+            color: #c0392b;
+        }
+        #plot {
+            margin-top: 20px;
+            width: 100%;
+            height: 400px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Definite Integral Calculator</h2>
+    
+    <div class="input-group">
+        <label for="function">Function f(x):</label>
+        <input type="text" id="function" value="x^2" placeholder="e.g., sin(x), x^2 + 2x">
+    </div>
+    
+    <div class="bounds">
+        <div class="input-group">
+            <label for="lowerBound">Lower Bound (a):</label>
+            <input type="number" id="lowerBound" value="0" step="any">
+        </div>
+        <div class="input-group">
+            <label for="upperBound">Upper Bound (b):</label>
+            <input type="number" id="upperBound" value="2" step="any">
+        </div>
+    </div>
+    
+    <button onclick="calculateAndPlot()">Calculate & Plot</button>
+    
+    <div id="resultBox" class="result"></div>
+    <div id="plot"></div>
+</div>
+
+<script>
+    // Numerical Integration using Simpson's 1/3 Rule
+    function integrate(f, a, b, n = 1000) {
+        if (n % 2 !== 0) n++; // Ensure n is even
+        const h = (b - a) / n;
+        let sum = f(a) + f(b);
+        
+        for (let i = 1; i < n; i += 2) {
+            sum += 4 * f(a + i * h);
+        }
+        for (let i = 2; i < n - 1; i += 2) {
+            sum += 2 * f(a + i * h);
+        }
+        
+        return (sum * h) / 3;
+    }
+
+    function calculateAndPlot() {
+        const funcStr = document.getElementById('function').value;
+        const a = parseFloat(document.getElementById('lowerBound').value);
+        const b = parseFloat(document.getElementById('upperBound').value);
+        const resultBox = document.getElementById('resultBox');
+
+        resultBox.style.display = 'block';
+        resultBox.className = 'result';
+
+        if (isNaN(a) || isNaN(b) || a >= b) {
+            resultBox.textContent = 'Error: Ensure bounds are numbers and a < b.';
+            resultBox.classList.add('error');
+            return;
+        }
+
+        try {
+            // Compile the function using math.js
+            const node = math.parse(funcStr);
+            const code = node.compile();
+            const f = (x) => code.evaluate({ x: x });
+
+            // Calculate Integral Area
+            const area = integrate(f, a, b);
+            resultBox.innerHTML = `Area &approx; ${area.toFixed(4)} &nbsp;&nbsp; <span style="font-weight:normal; font-size:14px">(using numerical integration)</span>`;
+
+            // Prepare data for Plotly
+            const margin = (b - a) * 0.5; // Add visual margin to the sides
+            const xMin = a - margin;
+            const xMax = b + margin;
+            const step = (xMax - xMin) / 300;
+
+            const xValues = [], yValues = [];
+            const xFill = [], yFill = [];
+
+            for (let x = xMin; x <= xMax; x += step) {
+                const y = f(x);
+                // Protect against infinities/NaNs disrupting the plot completely
+                if (isFinite(y)) {
+                    xValues.push(x);
+                    yValues.push(y);
+                    
+                    if (x >= a && x <= b) {
+                        xFill.push(x);
+                        yFill.push(y);
+                    }
+                }
+            }
+
+            // Also ensure exact bounds are pushed into the fill array
+            xFill.unshift(a); yFill.unshift(f(a));
+            xFill.push(b); yFill.push(f(b));
+
+            // Create plot traces
+            const traceLine = {
+                x: xValues,
+                y: yValues,
+                type: 'scatter',
+                mode: 'lines',
+                name: 'f(x)',
+                line: { color: '#2980b9', width: 2 }
+            };
+
+            const traceFill = {
+                x: xFill,
+                y: yFill,
+                fill: 'tozeroy', // Fills down to the x-axis
+                type: 'scatter',
+                mode: 'none',
+                name: `Area [${a}, ${b}]`,
+                fillcolor: 'rgba(52, 152, 219, 0.4)'
+            };
+
+            const layout = {
+                title: `Graph of ${funcStr}`,
+                margin: { t: 40, r: 20, l: 40, b: 40 },
+                xaxis: { zeroline: true, zerolinecolor: '#999' },
+                yaxis: { zeroline: true, zerolinecolor: '#999' },
+                showlegend: false
+            };
+
+            Plotly.newPlot('plot', [traceFill, traceLine], layout, {staticPlot: false});
+
+        } catch (error) {
+            resultBox.textContent = 'Error: Invalid function. Use proper math syntax (e.g., sin(x), x^2).';
+            resultBox.classList.add('error');
+            Plotly.purge('plot'); // Clear plot on error
+        }
+    }
+
+    // Run once on load to show initial graph
+    window.onload = calculateAndPlot;
+</script>
+
+</body>
+</html>
